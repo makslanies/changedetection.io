@@ -2,6 +2,10 @@
 {% block content %}
 {% from '_helpers.html' import render_field %}
 <script src="{{url_for('static_content', group='js', filename='tabs.js')}}" defer></script>
+<div class="row g-2 align-items-center mb-3">
+    <div class="col"><h1 class="page-title mb-0">{{ _('Import') }}</h1></div>
+</div>
+
 <div class="edit-form monospaced-textarea">
 
     <div class="tabs collapsable">

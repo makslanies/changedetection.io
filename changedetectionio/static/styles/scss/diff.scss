@@ -1,46 +1,21 @@
 @use "settings" as *;
 
-// Paint the page's own background (page colour + the fixed 130deg gradient at
-// 0.91, pre-composited with color-mix) so a sticky bar stays opaque to content
+// Paint the page's own background so a sticky bar stays opaque to content
 // scrolling under it while looking identical to the page behind it.
 //
-// styles.scss paints that backdrop as a real fixed layer: body::after is a
-// `position: fixed` box at the viewport's top-left corner, viewport-wide and
-// `height: 100vh` tall. Anything that has to disappear into it must show the
-// slice of that box it covers. background-attachment: fixed asks the engine for
-// exactly that, and iOS Safari does not honour it - it anchors the layer to the
-// document instead, so the bar sweeps the whole ramp (cyan to purple over a
-// long page) while the gutters beside it hold still. Chromium does honour it,
-// which is why only a device caught this.
+// The page background used to be a fixed viewport-sized 130deg gradient painted
+// by styles.scss (`body::after`), and each bar had to reproduce the slice of it
+// that it covered. The gradient has been removed: the page is a flat colour, so
+// every surface that needs to disappear into the background just uses the shared
+// `--page-background-gradient` variable (now an alias of the flat page colour).
+// Nothing here has to align to a viewport edge any more, which also removes the
+// iOS Safari background-attachment problem described in the original version of
+// this mixin.
 //
-// So derive the alignment from geometry and ask for no feature at all. Each bar
-// keeps a constant viewport offset - .header at the top, #diff-header directly
-// below it - and both are flush with the viewport's right edge at every width:
-// the action rail insets them from the *left* on a wide screen and widens again
-// on hover, but nothing moves their right edge. Anchor a viewport-sized copy of
-// the gradient to that edge and push it up by the bar's own offset, and the bar
-// paints body::after's slice by construction, on any engine.
-//
-// $y-offset: the bar's distance from the top of the viewport.
+// $y-offset: kept for call-site compatibility (the bar's distance from the top
+// of the viewport); no longer used, since there is no offset to compensate.
 @mixin page-surface-gradient($y-offset: 0px) {
-  background: var(--color-background-gradient-second); // fallback, no color-mix
-  // Longhands from here down, and no second `background:` shorthand after them -
-  // one would silently reset size/position/origin back to their initial values.
-  background-image: linear-gradient(130deg,
-    color-mix(in srgb, var(--color-background-gradient-first) 91%, var(--color-background-page)),
-    color-mix(in srgb, var(--color-background-gradient-second) 91%, var(--color-background-page)) 41.07%,
-    color-mix(in srgb, var(--color-background-gradient-third) 91%, var(--color-background-page)) 84.05%);
-  // 100vh to match body::after's own height: 100vh - same unit, so the two
-  // resolve to the same number on iOS, where it means the large (toolbar
-  // collapsed) viewport and therefore holds still as the toolbar moves.
-  // 100vw for the width: the bars are as wide as the viewport only on a narrow
-  // screen, so 100% would compress the ramp into the rail's leftovers on a
-  // desktop one.
-  background-size: 100vw 100vh;
-  background-repeat: no-repeat;
-  // border-box, or the bar's own padding would offset the copy by that much.
-  background-origin: border-box;
-  background-position: right 0 top calc(-1 * #{$y-offset});
+  background: var(--page-background-gradient);
 }
 
 #diff-form {

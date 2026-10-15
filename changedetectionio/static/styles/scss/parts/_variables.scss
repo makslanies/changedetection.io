@@ -24,15 +24,10 @@
   --color-light-red: #dd0000;
 
   --color-background-page: var(--color-grey-100);
-  --color-background-gradient-first: #5ad8f7;
-  --color-background-gradient-second: #2f50af;
-  --color-background-gradient-third: #9150bf;
-  // The page's atmosphere gradient, shared so anything that needs to sit ON the
-  // page background (e.g. the left rail rolling out over content) can repaint
-  // an identical copy instead of approximating it with a flat colour. The
-  // referenced gradient stops are re-declared per theme below, so this single
-  // definition follows light/dark automatically.
-  --page-background-gradient: linear-gradient(130deg, var(--color-background-gradient-first), var(--color-background-gradient-second) 41.07%, var(--color-background-gradient-third) 84.05%);
+  // Background gradient removed — the page is a flat colour. `body:after` and
+  // every surface that used to mirror the old 130deg ramp (sticky bars, popups)
+  // resolve through this one variable, so they all stay identical to the page.
+  --page-background-gradient: var(--color-background-page);
   --color-background: var(--color-white);
   --color-text: var(--color-grey-200);
   --color-link: #1b98f8;
@@ -131,9 +126,6 @@ html[data-darkmode="true"] {
   --color-link: #59bdfb;
   --color-text: var(--color-white);
   --color-table-line: #262c37;
-  --color-background-gradient-first: #3f90a5;
-  --color-background-gradient-second: #1e316c;
-  --color-background-gradient-third: #4d2c64;
 
   --color-background-new-watch-input: var(--color-grey-100);
   --color-background-new-watch-input-transparent: var(--color-grey-100);

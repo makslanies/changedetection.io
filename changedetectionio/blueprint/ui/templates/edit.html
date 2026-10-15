@@ -40,6 +40,10 @@
 {% set has_tag_filters_extra="WARNING: Watch has tag/groups set with special filters\n" if has_special_tag_options else '' %}
 <script src="{{url_for('static_content', group='js', filename='recheck-proxy.js')}}" defer></script>
 
+<div class="row g-2 align-items-center mb-3">
+    <div class="col"><h1 class="page-title mb-0">{{ _('Edit') }}</h1></div>
+</div>
+
 <div class="edit-form monospaced-textarea">
 
     <div class="tabs collapsable">
@@ -599,7 +603,7 @@ Math: {{ 1 + 1 }}") }}
                     <a href="{{url_for('ui.form_clone', uuid=uuid)}}"
                        data-method="POST"
                        class="pure-button">{{ _('Clone & Edit') }}</a>
-                 <a href="{{ url_for('rss.rss_single_watch', uuid=uuid, token=app_rss_token)}}"><img alt="{{ _('RSS Feed for this watch') }}" style="padding: .5em 1em;" src="{{url_for('static_content', group='images', filename='generic_feed-icon.svg')}}" height="15"></a>
+                 <a class="rss-feed-link" title="{{ _('RSS Feed for this watch') }}" href="{{ url_for('rss.rss_single_watch', uuid=uuid, token=app_rss_token)}}"><i class="ti ti-rss" aria-hidden="true"></i><span class="visually-hidden">{{ _('RSS Feed for this watch') }}</span></a>
                 </div>
             </div>
         </form>

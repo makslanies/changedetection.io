@@ -26,6 +26,10 @@ html[data-darkmode="true"] .watch-tag-list.tag-{{ class_name }} {
 {%- endfor -%}
 </style>
 
+<div class="row g-2 align-items-center mb-3">
+    <div class="col"><h1 class="page-title mb-0">{{ _('Watch Groups') }}</h1></div>
+</div>
+
 <div class="box">
     <form class="pure-form" action="{{ url_for('tags.form_tag_add') }}" method="POST" id="new-watch-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" >
@@ -94,7 +98,7 @@ html[data-darkmode="true"] .watch-tag-list.tag-{{ class_name }} {
                        data-confirm-message="{{ _('<p>Are you sure you want to unlink all watches from group <strong>%(title)s</strong>?</p><p>The tag will be kept but watches will be removed from it.</p>', title=tag.title) }}"
                        data-confirm-button="{{ _('Unlink') }}"
                        title="{{ _('Keep the tag but unlink any watches') }}">{{ _('Unlink') }}</a>
-                    <a href="{{ url_for('rss.rss_tag_feed', tag_uuid=uuid, token=app_rss_token)}}"><img alt="{{ _('RSS Feed for this watch') }}" style="padding-left: 1em;" src="{{url_for('static_content', group='images', filename='generic_feed-icon.svg')}}" height="15"></a>
+                    <a class="rss-feed-link" title="{{ _('RSS Feed for this watch') }}" href="{{ url_for('rss.rss_tag_feed', tag_uuid=uuid, token=app_rss_token)}}"><i class="ti ti-rss" aria-hidden="true"></i><span class="visually-hidden">{{ _('RSS Feed for this watch') }}</span></a>
                 </td>
             </tr>
             {% endfor %}

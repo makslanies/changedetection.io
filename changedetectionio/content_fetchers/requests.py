@@ -33,6 +33,7 @@ class fetcher(Fetcher):
             is_binary=False,
             empty_pages_are_a_change=False,
             watch_uuid=None,
+            fetch_favicon=True,
             ):
         """Synchronous version of run - the original requests implementation"""
 
@@ -202,11 +203,220 @@ class fetcher(Fetcher):
 
         self.raw_content = r.content
 
+        if fetch_favicon and not is_binary and self.content:
+            try:
+                self._fetch_favicon(
+                    session=session,
+                    page_url=current_url,
+                    html=self.content,
+                    proxies=proxies,
+                    timeout=timeout,
+                    request_headers=request_headers,
+                    allow_iana_restricted=allow_iana_restricted,
+                )
+            except Exception as e:
+                logger.debug(f"Favicon fetch skipped for '{url}': {e}")
+
         # If the content is an image, set it as screenshot for SSIM/visual comparison
         content_type = r.headers.get('content-type', '').lower()
         if 'image/' in content_type:
             self.screenshot = r.content
             logger.debug(f"Image content detected ({content_type}), set as screenshot for comparison")
+
+        return None
+
+    def _fetch_favicon(self, session, page_url, html, proxies, timeout, request_headers, allow_iana_restricted):
+        """Download the page's icon for the plain HTTP fetcher.
+
+        Browser fetchers already do this in-page. html_requests never did, so the
+        watch list kept the empty circle placeholder forever.
+        """
+        import base64
+
+        from bs4 import BeautifulSoup
+
+        def icon_links(markup, base_url):
+            found = []
+            soup = BeautifulSoup(markup[:200000], 'html.parser')
+            for link in soup.find_all('link'):
+                rels = link.get('rel') or []
+                rel = ' '.join(rels).lower() if isinstance(rels, list) else str(rels).lower()
+                if 'icon' not in rel:
+                    continue
+                href = (link.get('href') or '').strip()
+                if not href:
+                    continue
+                size = 16
+                sizes = (link.get('sizes') or '').lower()
+                if 'x' in sizes:
+                    try:
+                        size = int(sizes.split('x', 1)[0])
+                    except ValueError:
+                        size = 16
+                elif 'apple-touch-icon' in rel:
+                    size = 180
+                found.append((size, 'apple-touch-icon' in rel, urljoin(base_url, href)))
+            return found
+
+        def try_icons(candidates, referer_host):
+            candidates = sorted(candidates, key=lambda item: (item[0], item[1]), reverse=True)
+            for _size, _apple, icon_url in candidates[:6]:
+                if icon_url.startswith('data:'):
+                    blob = self._favicon_from_data_uri(icon_url)
+                    if blob:
+                        self.favicon_blob = blob
+                        return True
+                    continue
+
+                ok, _reason = is_fetch_url_allowed(icon_url)
+                if not ok:
+                    continue
+
+                headers = {}
+                if urlparse(icon_url).netloc == referer_host and isinstance(request_headers, dict):
+                    headers = dict(request_headers)
+                elif isinstance(request_headers, dict) and request_headers.get('User-Agent'):
+                    headers = {'User-Agent': request_headers['User-Agent']}
+
+                try:
+                    response = self._get_with_redirect_checks(
+                        session, icon_url, headers, proxies, budget, allow_iana_restricted
+                    )
+                except Exception as e:
+                    logger.debug(f"Favicon candidate failed {icon_url}: {e}")
+                    continue
+
+                if response is None or response.status_code != 200 or not response.content:
+                    continue
+                if len(response.content) > 1024 * 1024:
+                    continue
+                mime = (response.headers.get('content-type') or '').split(';', 1)[0].strip().lower()
+                if mime and not mime.startswith('image/') and mime not in ('application/octet-stream', 'application/ico', 'image/vnd.microsoft.icon'):
+                    continue
+                self.favicon_blob = {
+                    'url': icon_url,
+                    'base64': base64.b64encode(response.content).decode('ascii'),
+                    'mime_type': mime or None,
+                }
+                return True
+            return False
+
+        page_host = urlparse(page_url).netloc
+        budget = min(int(timeout or 8), 8)
+        head = html[:30000]
+
+        # RSS <image><url> and Atom <icon> point at the site icon even when the
+        # watched address is a feed path on another host.
+        feed_image = re.search(r'<image>\s*<url>\s*(https?://[^<\s]+)', head, re.I)
+        atom_icon = re.search(r'<icon>\s*(https?://[^<\s]+)', head, re.I)
+        if feed_image and try_icons([(64, False, feed_image.group(1).strip())], page_host):
+            return
+        if atom_icon and try_icons([(64, False, atom_icon.group(1).strip())], page_host):
+            return
+
+        candidates = icon_links(html, page_url)
+        if not candidates:
+            # Absolute /favicon.ico resolves against the origin, not the document path.
+            candidates.append((16, False, urljoin(page_url, '/favicon.ico')))
+        if try_icons(candidates, page_host):
+            return
+
+        # Plain files (CHANGELOG.txt) and feeds have no usable <link rel="icon">
+        # on the document itself. Read icons from the site root, then /favicon.ico.
+        homes = []
+        site_link = re.search(r'<channel>[\s\S]{0,2000}?<link>\s*(https?://[^<\s]+)', head, re.I)
+        if site_link:
+            homes.append(site_link.group(1).strip())
+        parsed = urlparse(page_url)
+        if parsed.scheme in ('http', 'https') and parsed.netloc and parsed.path not in ('', '/'):
+            homes.append(f'{parsed.scheme}://{parsed.netloc}/')
+
+        seen_origins = set()
+        for home in homes:
+            home_parsed = urlparse(home)
+            if home_parsed.scheme not in ('http', 'https') or not home_parsed.netloc:
+                continue
+            origin = f'{home_parsed.scheme}://{home_parsed.netloc}'
+            if origin in seen_origins:
+                continue
+            seen_origins.add(origin)
+            homepage = home if home_parsed.path else origin + '/'
+            ok, _reason = is_fetch_url_allowed(homepage)
+            if not ok:
+                continue
+
+            headers = {}
+            if home_parsed.netloc == page_host and isinstance(request_headers, dict):
+                headers = dict(request_headers)
+            elif isinstance(request_headers, dict) and request_headers.get('User-Agent'):
+                headers = {'User-Agent': request_headers['User-Agent']}
+
+            homepage_html = ''
+            final_url = homepage
+            try:
+                response = self._get_with_redirect_checks(
+                    session, homepage, headers, proxies, budget, allow_iana_restricted
+                )
+                if response is not None and response.status_code == 200 and response.content:
+                    ctype = (response.headers.get('content-type') or '').lower()
+                    if 'html' in ctype or 'xml' in ctype:
+                        homepage_html = response.content[:200000].decode('utf-8', errors='replace')
+                        final_url = getattr(response, 'url', None) or homepage
+            except Exception as e:
+                logger.debug(f"Favicon homepage lookup failed {homepage}: {e}")
+
+            if homepage_html and try_icons(icon_links(homepage_html, final_url), home_parsed.netloc):
+                return
+            if try_icons([(16, False, origin + '/favicon.ico')], home_parsed.netloc):
+                return
+
+    @staticmethod
+    def _favicon_from_data_uri(uri):
+        import base64
+        import re
+
+        match = re.match(r'^data:([^;,]+)?(;base64)?,(.*)$', uri, re.DOTALL)
+        if not match:
+            return None
+        mime = (match.group(1) or 'image/x-icon').lower()
+        payload = match.group(3) or ''
+        if match.group(2):
+            try:
+                raw = base64.b64decode(payload, validate=True)
+                encoded = payload.strip()
+            except Exception:
+                return None
+        else:
+            from urllib.parse import unquote_to_bytes
+            raw = unquote_to_bytes(payload)
+            encoded = base64.b64encode(raw).decode('ascii')
+        if not raw or len(raw) > 1024 * 1024:
+            return None
+        return {'url': uri[:80], 'base64': encoded, 'mime_type': mime}
+
+    def _get_with_redirect_checks(self, session, url, headers, proxies, timeout, allow_iana_restricted):
+        current = url
+        response = None
+        for _ in range(4):
+            response = session.get(
+                current,
+                headers=headers,
+                timeout=timeout,
+                proxies=proxies,
+                verify=False,
+                allow_redirects=False,
+            )
+            if not response.is_redirect:
+                return response
+            location = response.headers.get('Location', '')
+            redirect_url = urljoin(current, location)
+            if not allow_iana_restricted and is_url_private_or_parser_confused(redirect_url):
+                raise Exception(f"Favicon redirect blocked: {redirect_url}")
+            ok, reason = is_fetch_url_allowed(redirect_url)
+            if not ok:
+                raise Exception(reason)
+            current = redirect_url
+        raise Exception('Too many favicon redirects')
 
     async def run(self,
                   fetch_favicon=True,
@@ -241,6 +451,7 @@ class fetcher(Fetcher):
                 is_binary=is_binary,
                 empty_pages_are_a_change=empty_pages_are_a_change,
                 watch_uuid=watch_uuid,
+                fetch_favicon=fetch_favicon,
             )
         )
 
